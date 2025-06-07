@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Bot</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <style>
+    .fade-in { animation: fadeIn 0.5s ease-in; }
+    .fade-out { animation: fadeOut 0.5s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    .popup { animation: slideUp 0.3s ease-out; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .progress-bar { transition: width 0.3s ease-in-out; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center font-sans">
+  <div class="max-w-2xl w-full p-6 bg-white rounded-lg shadow-lg">
+    <!-- Start Section -->
+    <div id="startSection" class="fade-in">
+      <h1 class="text-3xl font-bold text-center text-blue-600 mb-6">Quiz Bot</h1>
+      <div class="mb-4">
+        <h3 class="text-lg font-semibold mb-2">Test turi</h3>
+        <p class="text-gray-700">English Test</p>
+      </div>
+      <div class="mb-4">
+        <label class="block mb-2">
+          <input type="checkbox" id="shuffleQuestions" class="mr-2"> Savollarni aralashtirish
+        </label>
+        <label class="block">
+          <input type="checkbox" id="shuffleAnswers" class="mr-2"> Javoblarni aralashtirish
+        </label>
+      </div>
+      <button onclick="startTest()" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">Testni boshlash</button>
+    </div>
+
+    <!-- Quiz Section -->
+    <div id="quizSection" class="hidden fade-in">
+      <div class="flex justify-between items-center mb-4">
+        <div>Vaqt: <span id="timer" class="font-mono">0:00</span></div>
+        <div>Savollar: <span id="progressCounter">1/10</span></div>
+      </div>
+      <div class="w-full bg-gray-200 rounded-full h-2.5 mb-4">
+        <div id="progressBar" class="progress-bar bg-blue-600 h-2.5 rounded-full" style="width: 10%"></div>
+      </div>
+      <div id="question" class="mb-6"></div>
+      <div id="feedback" class="hidden fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-lg shadow-lg text-white text-center"></div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsSection" class="hidden fade-in">
+      <h2 class="text-2xl font-bold text-center text-blue-600 mb-6">Test yakunlandi!</h2>
+      <table class="w-full mb-6 border-collapse">
+        <thead>
+          <tr class="bg-gray-200">
+            <th class="border p-2">Savol</th>
+            <th class="border p-2">Sizning javob</th>
+            <th class="border p-2">To‘g‘ri javob</th>
+            <th class="border p-2">Natija</th>
+          </tr>
+        </thead>
+        <tbody id="resultsTable"></tbody>
+      </table>
+      <div class="flex flex-wrap justify-center gap-2">
+        <button onclick="reviewIncorrect()" class="bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition">Xato javoblarni ko‘rish</button>
+        <button onclick="retryIncorrect()" class="bg-yellow-500 text-white py-2 px-4 rounded-lg hover:bg-yellow-600 transition">Xato javoblarni qayta ishlash</button>
+        <button onclick="restartTest()" class="bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition">Testni qayta boshlash</button>
+        <button onclick="newTest()" class="bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition">Bosh sahifa</button>
+      </div>
+    </div>
+
+    <!-- Incorrect Questions Section -->
+    <div id="incorrectSection" class="hidden fade-in">
+      <h2 class="text-2xl font-bold text-center text-blue-600 mb-6">Xato javoblar</h2>
+      <div id="incorrectQuestions" class="mb-6"></div>
+      <button onclick="backToResults()" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">Natijalarga qaytish</button>
+    </div>
+  </div>
+
+  <script>
+    let questions = [];
+    let originalQuestions = [];
+    let currentQuestionIndex = 0;
+    let userAnswers = [];
+    let timerInterval;
+
+    // Start the quiz
+    async function startTest() {
+      try {
+        const response = await fetch('test/q.txt');
+        const fileText = await response.text();
+        questions = parseQuizFile(fileText);
+        originalQuestions = [...questions]; // Store original for retrying incorrect
+        if (questions.length === 0) throw new Error('No valid questions');
+      } catch (error) {
+        alert('Test faylini yuklashda xato. test/q.txt faylini tekshiring.');
+        console.error(error);
+        return;
+      }
+
+      if (document.getElementById('shuffleQuestions').checked) {
+        questions = shuffleArray(questions);
+      }
+      if (document.getElementById('shuffleAnswers').checked) {
+        questions.forEach(q => {
+          const originalCorrectText = q.options.find(opt => opt.letter === q.correctAnswer).text;
+          q.shuffledOptions = shuffleArray([...q.options.map(opt => opt.text)]);
+          q.shuffledCorrectIndex = q.shuffledOptions.indexOf(originalCorrectText);
+          q.correctLetter = String.fromCharCode(65 + q.shuffledCorrectIndex);
+        });
+      } else {
+        questions.forEach(q => q.correctLetter = q.correctAnswer);
+      }
+
+      document.getElementById('startSection').style.display = 'none';
+      document.getElementById('quizSection').style.display = 'block';
+      startTimer();
+      updateProgress();
+      displayQuestion();
+    }
+
+    // Parse quiz file
+    function parseQuizFile(fileText) {
+      const questionBlocks = fileText.trim().split(/\n(?=\d+\.\s)/);
+        return questionBlocks.map(block => parseQuestion(block)).filter(q => q);
+    }
+
+    // Parse individual question
+    function parseQuestion(block) {
+      const lines = block.split('\n').map(line => line.trim()).filter(line => line);
+      const firstLine = lines[0];
+      const numberMatch = firstLine.match(/^(\d+)\.\s+(.*)/);
+      if (!numberMatch) return null;
+
+      const number = numberMatch[1];
+      let questionText = numberMatch[2];
+      const options = [];
+      let correctAnswer = null;
+
+      const optionsStart = questionText.search(/\s[A-D)]\)/);
+      if (optionsStart !== -1) {
+        const optionsText = questionText.slice(optionsStart).trim();
+        questionText = questionText.slice(0, optionsStart).trim();
+        const optionRegex = /(\*?[A-D)]\))\s+(.*?)(?=\s[A-D]\)|$)/g;
+        let match;
+        while ((match = optionRegex.exec(optionsText)) !== null) {
+          const optionLabel = match[1];
+          const optionText = match[2].trim();
+          const letter = optionLabel.replace('*', '').replace(')', '');
+          const isCorrect = optionLabel.startsWith('*');
+          options.push({ letter, text: optionText });
+          if (isCorrect) correctAnswer = letter;
+        }
+      } else {
+        for (let i = 1; i < lines.length; i++) {
+          const optionMatch = lines[i].match(/^(\*?[A-D)]\))\s+(.*)/);
+          if (optionMatch) {
+            const optionLabel = optionMatch[1];
+            const optionText = optionMatch[2];
+            const letter = optionLabel.replace('*', '').replace(')', '');
+            const isCorrect = optionLabel.startsWith('*');
+            options.push({ letter, text: optionText });
+            if (isCorrect) correctAnswer = letter;
+          }
+        }
+      }
+
+      if (!correctAnswer || options.length < 2) return null;
+      return { number, question: questionText, options, correctAnswer };
+    }
+
+    // Shuffle array
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    // Display question
+    function displayQuestion() {
+      const q = questions[currentQuestionIndex];
+      const displayOptions = document.getElementById('shuffleAnswers').checked ? 
+        q.shuffledOptions : q.options.map(opt => opt.text);
+      document.getElementById('question').innerHTML = `
+        <p class="text-lg font-medium mb-4">${q.number}. ${q.question}</p>
+        ${displayOptions.map((opt, i) => `
+          <label class="block mb-2 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer transition">
+            <input type="radio" name="answer" value="${String.fromCharCode(65 + i)}" 
+                   onchange="checkAnswer(this)" class="mr-2">${opt}
+          </label>
+        `).join('')}
+      `;
+    }
+
+    // Check answer and provide feedback
+    function checkAnswer(input) {
+      const q = questions[currentQuestionIndex];
+      const selectedAnswer = input.value;
+      const feedbackDiv = document.getElementById('feedback');
+      const displayOptions = document.getElementById('shuffleAnswers').checked ? 
+        q.shuffledOptions : q.options.map(opt => opt.text);
+      const correctIndex = q.correctLetter.charCodeAt(0) - 65;
+
+      userAnswers.push(selectedAnswer);
+
+      if (selectedAnswer === q.correctLetter) {
+        feedbackDiv.className = 'popup bg-green-500 fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-lg shadow-lg text-white text-center';
+        feedbackDiv.textContent = 'To‘g‘ri!';
+        feedbackDiv.style.display = 'block';
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, duration: 1000 });
+        if ('vibrate' in navigator) navigator.vibrate(200); // Short vibration for success
+      } else {
+        feedbackDiv.className = 'popup bg-red-500 fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-lg shadow-lg text-white text-center';
+        feedbackDiv.textContent = `Noto‘g‘ri! To‘g‘ri javob: ${q.correctLetter}: ${displayOptions[correctIndex]}`;
+        feedbackDiv.style.display = 'block';
+        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]); // "No" vibration pattern
+      }
+
+      setTimeout(() => {
+        feedbackDiv.classList.add('fade-out');
+        setTimeout(() => {
+          feedbackDiv.style.display = 'none';
+          feedbackDiv.classList.remove('fade-out');
+          currentQuestionIndex++;
+          if (currentQuestionIndex < questions.length) {
+            updateProgress();
+            displayQuestion();
+          } else {
+            clearInterval(timerInterval);
+            document.getElementById('quizSection').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'block';
+            displayResults();
+          }
+        }, 500);
+      }, 1500);
+    }
+
+    // Update progress
+    function updateProgress() {
+      const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
+      document.getElementById('progressBar').style.width = `${progress}%`;
+      document.getElementById('progressCounter').textContent = `${currentQuestionIndex + 1}/${questions.length}`;
+    }
+
+    // Start timer
+    function startTimer() {
+      let seconds = 0;
+      timerInterval = setInterval(() => {
+        seconds++;
+        const minutes = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        document.getElementById('timer').textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
+      }, 1000);
+    }
+
+    // Display results
+    function displayResults() {
+      const resultsTable = document.getElementById('resultsTable');
+      resultsTable.innerHTML = questions.map((q, i) => {
+        const userAnswer = userAnswers[i];
+        const correctAnswer = q.correctLetter;
+        const displayOptions = document.getElementById('shuffleAnswers').checked ? 
+          q.shuffledOptions : q.options.map(opt => opt.text);
+        const userIndex = userAnswer ? userAnswer.charCodeAt(0) - 65 : -1;
+        const correctIndex = correctAnswer.charCodeAt(0) - 65;
+        return `
+          <tr>
+            <td class="border p-2">${q.number}. ${q.question}</td>
+            <td class="border p-2">${userAnswer ? `${userAnswer}: ${displayOptions[userIndex]}` : 'Javob berilmadi'}</td>
+            <td class="border p-2">${correctAnswer}: ${displayOptions[correctIndex]}</td>
+            <td class="border p-2 ${userAnswer === correctAnswer ? 'text-green-600' : 'text-red-600'}">
+              ${userAnswer === correctAnswer ? 'To‘g‘ri' : 'Noto‘g‘ri'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Review incorrect questions
+    function reviewIncorrect() {
+      document.getElementById('resultsSection').style.display = 'none';
+      document.getElementById('incorrectSection').style.display = 'block';
+      const incorrectQuestions = document.getElementById('incorrectQuestions');
+      incorrectQuestions.innerHTML = questions
+        .map((q, i) => {
+          if (userAnswers[i] !== q.correctLetter) {
+            const displayOptions = document.getElementById('shuffleAnswers').checked ? 
+              q.shuffledOptions : q.options.map(opt => opt.text);
+            const correctIndex = q.correctLetter.charCodeAt(0) - 65;
+            return `
+              <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                <p class="font-medium">${q.number}. ${q.question}</p>
+                <p class="text-red-600">Sizning javob: ${userAnswers[i] ? `${userAnswers[i]}: ${displayOptions[userAnswers[i].charCodeAt(0) - 65]}` : 'Javob berilmadi'}</p>
+                <p class="text-green-600">To‘g‘ri javob: ${q.correctLetter}: ${displayOptions[correctIndex]}</p>
+              </div>
+            `;
+          }
+          return '';
+        })
+        .join('');
+    }
+
+    // Retry incorrect questions
+    function retryIncorrect() {
+      const incorrectIndices = questions
+        .map((q, i) => (userAnswers[i] !== q.correctLetter ? i : -1))
+        .filter(i => i !== -1);
+      if (incorrectIndices.length === 0) {
+        alert('Xato javoblar yo‘q!');
+        return;
+      }
+      questions = incorrectIndices.map(i => originalQuestions[i]);
+      currentQuestionIndex = 0;
+      userAnswers = [];
+      clearInterval(timerInterval);
+      document.getElementById('resultsSection').style.display = 'none';
+      document.getElementById('quizSection').style.display = 'block';
+      startTimer();
+      updateProgress();
+      displayQuestion();
+    }
+
+    // Restart quiz
+    function restartTest() {
+      questions = [...originalQuestions];
+      if (document.getElementById('shuffleQuestions').checked) {
+        questions = shuffleArray(questions);
+      }
+      if (document.getElementById('shuffleAnswers').checked) {
+        questions.forEach(q => {
+          const originalCorrectText = q.options.find(opt => opt.letter === q.correctAnswer).text;
+          q.shuffledOptions = shuffleArray([...q.options.map(opt => opt.text)]);
+          q.shuffledCorrectIndex = q.shuffledOptions.indexOf(originalCorrectText);
+          q.correctLetter = String.fromCharCode(65 + q.shuffledCorrectIndex);
+        });
+      } else {
+        questions.forEach(q => q.correctLetter = q.correctAnswer);
+      }
+      currentQuestionIndex = 0;
+      userAnswers = [];
+      clearInterval(timerInterval);
+      document.getElementById('resultsSection').style.display = 'none';
+      document.getElementById('quizSection').style.display = 'block';
+      startTimer();
+      updateProgress();
+      displayQuestion();
+    }
+
+    // Return to home
+    function newTest() {
+      questions = [];
+      originalQuestions = [];
+      currentQuestionIndex = 0;
+      userAnswers = [];
+      clearInterval(timerInterval);
+      document.getElementById('resultsSection').style.display = 'none';
+      document.getElementById('incorrectSection').style.display = 'none';
+      document.getElementById('startSection').style.display = 'block';
+      document.getElementById('timer').textContent = '0:00';
+    }
+
+    // Back to results
+    function backToResults() {
+      document.getElementById('incorrectSection').style.display = 'none';
+      document.getElementById('resultsSection').style.display = 'block';
+    }
+  </script>
+</body>
+</html>
