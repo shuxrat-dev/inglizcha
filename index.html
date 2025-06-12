@@ -23,10 +23,27 @@
       --accent: #2563eb;
       --card-bg: #ffffff;
     }
+    html, body {
+      height: 100%;
+      min-height: 100vh;
+      width: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
     body {
       background-color: var(--bg-primary);
       color: var(--text-primary);
       transition: all 0.3s ease;
+      min-height: 100vh;
+      height: 100%;
+      width: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    #quizContainer {
+      max-height: 100vh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
     .fade-in { animation: fadeIn 0.5s ease-in; }
     .fade-out { animation: fadeOut 0.5s ease-out; }
@@ -118,7 +135,7 @@
       <h1 class="text-3xl md:text-4xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-blue-600">QuickQuiz</h1>
       <div class="mb-6 p-4 rounded-lg" style="background-color: var(--card-bg);">
         <h3 class="text-lg font-semibold mb-2">Test turi</h3>
-        <p style="color: var(--text-secondary);">Dinshunoslik akalar, choy ichvolib yeshish kere</p>
+        <p style="color: var(--text-secondary);">English Test</p>
       </div>
       <div class="mb-6 p-4 rounded-lg" style="background-color: var(--card-bg);">
         <label class="flex items-center mb-2 cursor-pointer">
